@@ -1055,6 +1055,8 @@ def _heredoc_cut(src):
         nl = src.find(b"\n", m.end())
         if nl < 0:
             return None
+        if len(src[:nl]) - len(src[:nl].rstrip(b"\\")) & 1:   # continued opener line: bash joins the next line
+            return FALLBACK_REFUSED
         group = [g for g in found[i:] if g.start() < nl]
         cur = nl + 1
         for g in group:

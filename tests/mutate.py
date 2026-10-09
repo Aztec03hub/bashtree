@@ -264,6 +264,7 @@ MUTANTS = {
     "r9h here-string body dropped": [(C, "span, (), tgt.text)", "span, (), None)")],
     "r9h <<- dash left in place": [(C, "out[o:o + 2 + dash] =", "out[o:o + 2] =")],
     "r9h quoted delimiter unnoticed": [(C, "quoted = raw != delim", "quoted = False")],
+    "r9h continued opener unnoticed": [(C, "rstrip(b\"\\\\\")) & 1:", "rstrip(b\"\\\\\")) & 0:")],
 }
 TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
 

@@ -797,6 +797,14 @@ def test_r9h_heredoc_line_with_redirect_and_pipe_falls_back():
     assert cmds("bash <<< 'touch hit'")[0].redirects[0].body == "touch hit"
 
 
+def test_r9h_continuation_in_opener():
+    for bad in ('"M25" <<"E" ; M24 \\\n\'\\n\'\n$((1+$(M15)))\nE\n\nM26\t&>>qj\t> qf',
+                "cat <<E 2>&1 | cat \\\nx\nbody\nE\n",
+                "cat <<a | cat\n1\na\ncat <<b 2>&1 | cat \\\nz\n2\nb\n"):
+        r = parse(bad)
+        assert r.status == SYNTAX_ERROR and r.reason == "a heredoc body the fallback cannot read", (bad, r)
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
