@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bashtree"
+version = "0.1.0"
+description = "Bash command structure (commands, words, redirects, context) from tree-sitter-bash. Parses only; never runs anything."
+readme = "README.md"
+requires-python = ">=3.10"
+# Pinned: a new grammar can parse a command differently, and both consumers
+# key caches or decisions on the exact behaviour.
+dependencies = ["tree-sitter==0.26.0", "tree-sitter-bash==0.25.1"]
+
+[tool.setuptools]
+packages = ["bashtree"]
