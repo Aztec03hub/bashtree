@@ -245,6 +245,15 @@ MUTANTS = {
     "su without command is nothing": [(H, '        return [Nested(prog, "unknown", words=tuple(extra))]   #', '        return [Nested(prog, "unknown", words=tuple(extra))] if extra else []   #')],
     "parse in process": [(C, "    if ALWAYS_CHILD or len(src) > IN_PROCESS_BYTES or not text.isascii():", "    if False:")],
     "non-ascii parsed in process": [(C, " or not text.isascii():", ":")],
+    # r9h: heredoc fallback and bodies
+    "r9h fallback off": [(C, '    if tree.root_node.has_error and b"<<" in src:', "    if False:")],
+    "r9h unquoted substitution body read": [(C, "        if _SUBST_MARK.search(raw):\n            return None", "        if False:\n            return None")],
+    "r9h loose terminator": [(C, 'if (line.lstrip(b"\\t") if dash else line) == delim:', "if line.strip() == delim:")],
+    "r9h unused opener ignored": [(C, "src.used != set(src.heredocs)", "False")],
+    "r9h tabs kept in <<- body": [(C, "    if dash:\n        raw = re.sub(", "    if False:\n        raw = re.sub(")],
+    "r9h here-string body dropped": [(C, "span, (), tgt.text)", "span, (), None)")],
+    "r9h <<- dash left in place": [(C, "out[o:o + 2 + dash] =", "out[o:o + 2] =")],
+    "r9h quoted delimiter unnoticed": [(C, "quoted = raw != delim", "quoted = False")],
 }
 TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
 

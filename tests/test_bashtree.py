@@ -269,7 +269,8 @@ def test_redirects():
 # -- status --------------------------------------------------------------------
 def test_status():
     assert parse("echo 'unterminated").status == SYNTAX_ERROR
-    assert parse("cat <<a; cat <<b\na\nb").status == SYNTAX_ERROR    # a known grammar gap
+    assert parse("cat <<a; cat <<b\na\nb").status == OK              # was a grammar gap, read by the heredoc fallback
+    assert parse("cat <<a; cat <<b\na\nb").commands[1].redirects[0].body == ""
     assert parse("x 3<>h").status == SYNTAX_ERROR                      # another
     assert parse("x <<a " * 300).status == TOO_BIG
     assert parse("a=(" * 1001).status == TOO_BIG
@@ -735,6 +736,34 @@ def test_guards_after_the_r8_merge():
     assert nested(["tmux", "send-keys", "-M", "ls", "Enter"]) == []            # mouse events, not typed keys
     assert parse("M1 2147483647>qf").status == OK and parse("M1 2147483648>qf").status == SYNTAX_ERROR
     assert _words("M1 2147483648 >qf") == [["M1", "2147483648"]]               # too big for an fd: an argument
+
+
+def test_r9h_heredoc_line_with_redirect_and_pipe_falls_back():
+    t = "cat <<'EOF' 2>&1 | tail\nx $(y)\nEOF\nls -l"
+    cs = cmds(t)
+    assert [[w.text for w in c.words] for c in cs] == [["cat"], ["tail"], ["ls", "-l"]]
+    assert cs[0].redirects[0].body == "x $(y)\n" and cs[0].redirects[0].heredoc_quoted is True
+    assert cs[0].redirects[0].target.text == "EOF" and [r.op for r in cs[0].redirects] == ["<<", ">&"]
+    assert [t[c.words[0].span[0]:c.words[0].span[1]] for c in cs] == ["cat", "tail", "ls"]   # offsets unchanged
+    t = "python - <<'EOF' 2>&1 | grep -v W\nprint(1)\nEOF\ntouch z"
+    assert [[w.text for w in c.words] for c in cmds(t)] == [["python", "-"], ["grep", "-v", "W"], ["touch", "z"]]
+    assert cmds("cat <<EOF >f | cat\nhi $x\nEOF\n")[0].redirects[0].body == "hi $x\n"
+    assert cmds("cat <<-EOF >f | cat\n\thi\n\t\tEOF\n")[0].redirects[0].body == "hi\n"
+    assert cmds("cat <<-EOF >f | cat\n\thi\n\t\tEOF\n")[0].redirects[0].op == "<<-"
+    two = cmds("cat <<a >f | cat; cat <<b | wc\n1\na\n2\nb\nls")
+    assert [r.body for c in two for r in c.redirects if r.op == "<<"] == ["1\n", "2\n"]
+    # refusals: a missing or loose terminator, and an unquoted body holding commands
+    for bad in ("cat <<'EOF' 2>&1 | tail\nx\n", "cat <<'EOF' 2>&1 | tail\nx\nEOF \n",
+                "cat <<EOF >f | cat\nhi $(rm x)\nEOF\n", "cat <<EOF >f | cat\nhi `rm x`\nEOF\n",
+                "cat <<EOF >f | cat\n${x:-$(rm y)}\nEOF\n",
+                "echo $((1<<3)); cat <<'EOF' 2>&1 | tail\nx\n3\nEOF\n"):
+        assert parse(bad).status == SYNTAX_ERROR, bad
+    assert parse("cat <<EOF >f | cat\nhi $(rm x)\nEOF\n").reason == "a heredoc body the fallback cannot read"
+    assert cmds("cat <<'EOF' 2>&1 | tail\n$(rm x) `y`\nEOF\n")[0].redirects[0].body == "$(rm x) `y`\n"
+    # the normal parse and here-strings carry the body too
+    assert cmds("cat <<E\nx\nE")[0].redirects[0].body == "x\n"
+    assert cmds("cat <<E\nx $(y)\nE")[0].redirects[0].body is None
+    assert cmds("bash <<< 'touch hit'")[0].redirects[0].body == "touch hit"
 
 
 if __name__ == "__main__":
