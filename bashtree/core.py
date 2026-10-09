@@ -13,8 +13,8 @@ write) is for the caller to decide.
         cmd.ancestors, cmd.op_before, cmd.op_after, cmd.background, cmd.negated
 
 Known grammar limits (measured 2026-10-08 on 162,750 real commands):
-- two heredocs opened on one line (`cat <<a; cat <<b`) are a syntax error to
-  it (175 real commands); so is the `n<>file` redirect;
+- heredoc lines such as `cat <<a; cat <<b` or `cat <<E 2>&1 | tail` are a syntax
+  error to it (_heredoc_cut reads them); so is the `n<>file` redirect;
 - `! { a; }` is misparsed, silently, as a command named `{`; parse() reports
   that as a syntax error (21 real commands);
 - what the grammar gets wrong silently is reported as a syntax error: a line
@@ -125,6 +125,8 @@ class Redirect:
     span: tuple
     words: tuple = ()  # words written after the target (`>f a b`: a, b). The shell
     #                    hands them to the command, and Command.words includes them
+    body: str | None = None   # << / <<-: the text bash passes on stdin (tabs stripped for <<-);
+    #                    <<<: the word's text. None for an unquoted heredoc holding a substitution
 
 
 @dataclass(frozen=True)
@@ -346,7 +348,38 @@ def _joined(nodes, src):
                 all(w.literal for w in words) and not _expands(src[span[0]:span[1]].decode("utf-8", "replace")), span)
 
 
+_SUBST_MARK = re.compile(rb"\$\(|`|\$\{|\\\n")
+
+
+def _heredoc_text(raw, dash, quoted):
+    """The text bash feeds a heredoc's command, or None when an unquoted body
+    holds a substitution mark (those are commands, not data)."""
+    if not quoted:
+        if _SUBST_MARK.search(raw):
+            return None
+        raw = re.sub(rb"\\([$`\\])", rb"\1", raw)
+    if dash:
+        raw = re.sub(rb"(?m)^\t+", b"", raw)
+    return raw.decode("utf-8", "replace")
+
+
 def _redirect(node, src):
+    span = (node.start_byte, node.end_byte)
+    hd = getattr(src, "heredocs", None)
+    if hd and node.type == "file_redirect":
+        # a heredoc the fallback blanked out: the grammar saw `cat < 'E'`
+        op_node = next((c for c in node.children if not c.is_named), None)
+        dest = node.child_by_field_name("destination")
+        h = hd.get(op_node.start_byte) if op_node is not None and op_node.type == "<" else None
+        if h and dest is not None and dest.end_byte == h[2]:
+            r = _redirect_plain(node, src)
+            src.used.add(op_node.start_byte)
+            tgt = Word(h[1].replace("'", "").replace('"', "").replace("\\", ""), h[1], True, (dest.start_byte, h[2]))
+            return replace(r, op=h[0], target=tgt, heredoc_quoted=h[3], body=h[4], span=(node.start_byte, h[2]))
+    return _redirect_plain(node, src)
+
+
+def _redirect_plain(node, src):
     span = (node.start_byte, node.end_byte)
     if node.type == "heredoc_redirect":
         op = next((c.type for c in node.children if c.type in ("<<", "<<-")), "<<")
@@ -356,7 +389,9 @@ def _redirect(node, src):
         target = Word(_unescape(delim.replace("'", "").replace('"', ""), ""), delim, True,
                       (start.start_byte, start.end_byte) if start else span)
         fd = next((c for c in node.children if c.type == "file_descriptor"), None)
-        return Redirect(op, _raw(fd, src) if fd else None, target, quoted, span)
+        hb = next((c for c in node.children if c.type == "heredoc_body"), None)
+        body = _heredoc_text(src[hb.start_byte:hb.end_byte] if hb else b"", op == "<<-", quoted)
+        return Redirect(op, _raw(fd, src) if fd else None, target, quoted, span, (), body)
     fd_node = node.child_by_field_name("descriptor")
     dest = node.child_by_field_name("destination")
     if node.type == "herestring_redirect":
@@ -364,7 +399,8 @@ def _redirect(node, src):
         runs = _runs(node)
         dest = next((c for c in node.children if c.is_named), None)
         if runs:
-            return Redirect(op, _raw(fd_node, src) if fd_node else None, _joined(runs[0], src), None, span)
+            tgt = _joined(runs[0], src)
+            return Redirect(op, _raw(fd_node, src) if fd_node else None, tgt, None, span, (), tgt.text)
     else:
         op = next((c.type for c in node.children if not c.is_named), "")
     target, more = (_word(dest, src) if dest is not None else None), ()
@@ -993,7 +1029,61 @@ def _parse_in_child(src):
     return pickle.loads(done.stdout)                 # our own child's output, nothing else's
 
 
-def _parse_bytes(src):
+class _Src(bytes):
+    """Text the heredoc fallback blanked out: `heredocs` maps the offset of each
+    blanked `<<` to (op, delimiter as written, end offset, quoted, body); `used`
+    collects the ones the walk met again."""
+
+
+_HEREDOC = re.compile(rb"(?<!<)<<(-?)[ \t]*((?:[\w./-]|'[^'\n]*'|\"[^\"\n$`\\]*\"|\\\w)+)")
+FALLBACK_REFUSED = "a heredoc body the fallback cannot read"
+
+
+def _heredoc_cut(src):
+    """Fallback for the grammar's failure on `cat <<E 2>&1 | tail` (0.46% of real
+    commands): `<<` becomes `<` and each body, terminator line included, becomes
+    blanks, newlines kept, so every offset stays. Returns (text, table), a
+    refusal reason, or None when this does not apply (no opener, or a body
+    without its terminator). Whether the blanked text parses is the caller's test."""
+    out, table, skip, found = bytearray(src), {}, 0, list(_HEREDOC.finditer(src))
+    i = 0
+    while i < len(found):
+        m = found[i]
+        if m.start() < skip:                         # inside an earlier body: data
+            i += 1
+            continue
+        nl = src.find(b"\n", m.end())
+        if nl < 0:
+            return None
+        group = [g for g in found[i:] if g.start() < nl]
+        cur = nl + 1
+        for g in group:
+            dash, raw = g.group(1) == b"-", g.group(2)
+            delim = re.sub(rb"['\"\\]", b"", raw)
+            start = cur
+            while True:
+                end = src.find(b"\n", cur)
+                end = len(src) if end < 0 else end
+                line = src[cur:end]
+                if (line.lstrip(b"\t") if dash else line) == delim:
+                    break
+                if end >= len(src):
+                    return None
+                cur = end + 1
+            quoted = raw != delim
+            body = _heredoc_text(src[start:cur], dash, quoted)
+            if body is None:
+                return FALLBACK_REFUSED
+            out[start:end] = re.sub(rb"[^\n]", b" ", src[start:end])
+            o = g.start()
+            out[o:o + 2 + dash] = b"<" + b" " * (1 + dash)
+            table[o] = ("<<-" if dash else "<<", raw.decode("utf-8", "replace"), g.end(), quoted, body)
+            cur = skip = end + 1
+        i += len(group)
+    return (bytes(out), table) if table else None
+
+
+def _repaired(src):
     tree = _parser().parse(src)
     for _ in range(MAX_REPAIRS):
         at = None if tree.root_node.has_error else _swallowed_newline(tree.root_node, src)
@@ -1001,9 +1091,25 @@ def _parse_bytes(src):
             break
         src = src[:at] + b";" + src[at + 1:]
         tree = _parser().parse(src)
+    return tree, src
+
+
+def _parse_bytes(src):
+    tree, src = _repaired(src)
+    if tree.root_node.has_error and b"<<" in src:
+        cut = _heredoc_cut(src)
+        if isinstance(cut, str):
+            return Result(SYNTAX_ERROR, reason=cut)
+        if cut:
+            t2, s2 = _repaired(cut[0])
+            if not t2.root_node.has_error:
+                tree, src = t2, _Src(s2)
+                src.heredocs, src.used = cut[1], set()
     if tree.root_node.has_error:
         return Result(SYNTAX_ERROR, reason="tree-sitter-bash reports a syntax error")
     walked = _walk(tree.root_node, src)
+    if walked is not None and getattr(src, "heredocs", None) and src.used != set(src.heredocs):
+        return Result(SYNTAX_ERROR, reason=FALLBACK_REFUSED)
     if walked is None:
         return Result(TOO_BIG, reason=f"nested over {MAX_DEPTH} deep, or over {MAX_COMMANDS} commands")
     why = _unparsed(tree.root_node, src)
