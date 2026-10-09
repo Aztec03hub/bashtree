@@ -116,7 +116,7 @@ MUTANTS = {
     'continuation in quotes flagged': [(C, 'in_word and root.descendant_for_byte_range(p, p + 2).type not in _OPAQUE', 'in_word')],
     'escaped backslash is a continuation': [(C, '        if (p - j) % 2:', '        if True:')],
     '\\cX kept': [(C, '        elif s[0] == "c" and len(s) == 2:', '        elif False:')],
-    'env -S not split': [(H, '                words = [words[0]] + pieces + rest\n                continue', '                pass')],
+    'env -S not split': [(H, '                words = [words[0]] + pieces + rest\n                lits = [True] * (1 + len(pieces)) + lits[len(lits) - len(rest):]\n                continue', '                pass')],
     'env -S $ trusted': [(H, 'if any(ch in split[0] for ch in "$\\\\#"):', 'if False:')],
     'env options after -S': [(H, 'until={"-S", "--split-string"} if name == "env" else ()', 'until=()')],
     'env -S \\v not split': [(H, '" \\t\\r\\n\\v\\f"', '" \\t\\r\\n"')],
@@ -241,10 +241,20 @@ MUTANTS = {
     "r8 heredoc command line": [(C, 'return "text between the parts of a heredoc redirect"', "pass")],
     "r8 control backslash": [(C, '        elif s == "c\\\\\\\\":','        elif False:')],
     # round 8, slice C
-    "launchers unseen": [(H, "    if prog in LAUNCHERS:\n", "    if False:\n")],
+    "launchers unseen": [(H, "    if prog in LAUNCHERS or", "    if False or")],
     "su without command is nothing": [(H, '        return [Nested(prog, "unknown", words=tuple(extra))]   #', '        return [Nested(prog, "unknown", words=tuple(extra))] if extra else []   #')],
     "parse in process": [(C, "    if ALWAYS_CHILD or len(src) > IN_PROCESS_BYTES or not text.isascii():", "    if False:")],
     "non-ascii parsed in process": [(C, " or not text.isascii():", ":")],
+    # round 9i
+    "r9i nested does not unwrap": [(H, "    if unwrap_first and words:\n", "    if False:\n")],
+    "r9i unwrap stop is nothing": [(H, '        if u.stopped:\n            return [Nested(', '        if u.stopped:\n            return [] or [Nested(')],
+    "r9i source unseen": [(H, ' or prog in (".", "source"):', ':')],
+    "r9i git glued -c accepted": [(H, "        elif a.startswith(\"-\"):\n            return GitArgs(", "        elif a.startswith(\"-c\") and False:\n            pass\n        elif a.startswith(\"-\"):\n            return GitArgs(")],
+    "r9i git -C value unread": [(H, "            opts.append((a, args[i + 1]))\n            i += 1", "            opts.append((a, args[i + 1]))")],
+    "r9i git unknown not reported": [(H, "tuple(args[i:]), False, a)", "tuple(args[i:]), False, None)")],
+    "r9i nonliteral prefix unseen": [(H, "        if bad(i):\n            return nonlit(i)", "        if False:\n            return nonlit(i)")],
+    "r9i nonliteral env unseen": [(H, "                if bad2(rest, j):\n                    return Unwrapped(tuple(rest[j:]), tuple(peeled), \"nonliteral-assignment\", tuple(options))\n                j += 1                                   # env", "                j += 1                                   # env")],
+    "r9i git eq value dropped": [(H, "opts.append((name, val))", "opts.append((name, None))")],
 }
 TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
 

@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from bashtree import OK, SYNTAX_ERROR, TOO_BIG, nested, parse, unwrap  # noqa: E402
+from bashtree import OK, SYNTAX_ERROR, TOO_BIG, git_args, nested, parse, unwrap  # noqa: E402
 from bashtree.core import DEADLINE  # noqa: E402
 
 
@@ -735,6 +735,39 @@ def test_guards_after_the_r8_merge():
     assert nested(["tmux", "send-keys", "-M", "ls", "Enter"]) == []            # mouse events, not typed keys
     assert parse("M1 2147483647>qf").status == OK and parse("M1 2147483648>qf").status == SYNTAX_ERROR
     assert _words("M1 2147483648 >qf") == [["M1", "2147483648"]]               # too big for an fd: an argument
+
+
+def test_r9i_git_args_nested_wrappers_source():
+    g = git_args(["git", "-C", "/abs", "push"])
+    assert (g.options, g.subcommand, g.rest, g.ok, g.unknown) == ((("-C", "/abs"),), "push", (), True, None)
+    assert git_args(["git", "-c", "k=v", "push", "--force"]).options == (("-c", "k=v"),)
+    assert git_args(["git", "-c", "k=v", "push", "--force"]).rest == ("--force",)
+    g = git_args(["git", "-ccore.x=1", "push"])                 # git itself rejects the glued form
+    assert (g.ok, g.unknown, g.subcommand) == (False, "-ccore.x=1", None)
+    assert git_args(["git", "--git-dir=/x", "push"]).options == (("--git-dir", "/x"),)
+    assert git_args(["git", "--git-dir", "/x", "push"]).subcommand == "push"
+    assert git_args(["git", "--config-env=k=v", "push"]).options == (("--config-env", "k=v"),)
+    g = git_args(["git", "--no-pager", "-C", "x", "commit", "-m", "m"])
+    assert g.options == (("--no-pager", None), ("-C", "x")) and g.subcommand == "commit" and g.rest == ("-m", "m")
+    assert git_args(["git", "--exec-path", "push"]).subcommand == "push"      # attached value only
+    g = git_args(["git", "--bogus", "push"])
+    assert (g.ok, g.unknown, g.rest) == (False, "--bogus", ("--bogus", "push"))
+    assert not git_args(["git", "-C"]).ok and git_args(["git"]).subcommand is None
+    assert nested(("sudo", "bash", "-c", "rm x")) == [_n("bash", "text", "rm x")]
+    assert nested(("env", "bash", "-c", "x")) == [_n("bash", "text", "x")]
+    assert nested(("sudo", "bash", "-c", "rm x"), unwrap_first=False) == []
+    assert nested(("sudo", "-e", "f")) == [_n("sudo", "unknown", words=("f",))]
+    assert nested(("source", "f")) == [_n("source", "unknown", words=("f",))]
+    assert nested((".", "f")) == [_n(".", "unknown", words=("f",))]
+    assert nested(("trap", "--", "touch x", "EXIT")) == [_n("trap", "text", "touch x")]
+    ws = parse('env "${a}${b}_COUNT=1" git push').commands[0].words
+    u = unwrap(ws)
+    assert u.stopped == "nonliteral-assignment" and u.words[-2:] == ("git", "push"), u
+    assert unwrap(parse('A=$x env B=$y sudo -u r git push').commands[0].words).words == ("git", "push")
+    assert unwrap(parse('sudo "${a}_X=1" git').commands[0].words).stopped == "nonliteral-assignment"
+    assert unwrap(parse('"${a}_X=1" git').commands[0].words).stopped == "nonliteral-assignment"
+    assert unwrap(["env", "${a}_X=1", "git"]).words == ("git",)       # plain strings as before
+    assert nested(("trap", "-l")) == [] and nested(("trap", "EXIT")) == []
 
 
 if __name__ == "__main__":
