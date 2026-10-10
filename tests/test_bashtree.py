@@ -916,6 +916,12 @@ def test_r11b_launchers_listed():
         assert nested([p, "x"])[0].kind == "unknown", p
 
 
+def test_merge_guards_r11():
+    r = git_args(["git", "-c", "USER.NAME=x", "push"])                    # git folds key case; the allowlist is lowercase
+    assert r.ok and not r.runs_command and r.subcommand == "push"
+    assert not git_args(["git", "-c", "core.sshCommand=x", "push"]).ok
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
