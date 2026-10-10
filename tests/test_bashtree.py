@@ -1083,6 +1083,22 @@ def test_r13_escaped_quote_does_not_hide_expansion():
     assert git_args(ok.commands[0].words).ok
 
 
+def test_r14_git_brace_and_glob_value_is_expansion():
+    for t in ("git -C {.,-c,core.fsmonitor=./tool.sh} status", "git -C *.d status", "git --git-dir=a? status",
+              "git -C [ab] status"):
+        g = git_args(parse(t).commands[0].words)
+        assert not g.ok and g.runs_command, t
+    for t in ("git -C '{a,b}' status", 'git -C "*" status', "git -C \\* status"):
+        assert git_args(parse(t).commands[0].words).ok, t
+
+
+def test_r14_heredoc_body_keeps_leading_blank_lines():
+    bodies = lambda t: [r.body for c in parse(t).commands for r in c.redirects]
+    assert bodies("cat <<E\n\nfi\nE\n") == ["\nfi\n"]
+    assert bodies("cat <<E\n\n\nE\n") == ["\n\n"]
+    assert bodies("cat <<E\nx\nE\n") == ["x\n"]
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):

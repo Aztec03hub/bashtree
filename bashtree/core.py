@@ -419,7 +419,10 @@ def _redirect_plain(node, src):
                       (start.start_byte, start.end_byte) if start else span)
         fd = next((c for c in node.children if c.type == "file_descriptor"), None)
         hb = next((c for c in node.children if c.type == "heredoc_body"), None)
-        body = _heredoc_text(src[hb.start_byte:hb.end_byte] if hb else b"", op == "<<-", quoted)
+        bs = hb.start_byte if hb else 0
+        while hb and bs >= 2 and src[bs - 1] == 10 and src[bs - 2] == 10:
+            bs -= 1                  # the grammar drops leading blank lines from the body
+        body = _heredoc_text(src[bs:hb.end_byte] if hb else b"", op == "<<-", quoted)
         if start and _opener_spans(node, src, start.end_byte):
             body = None           # the opener line spans lines (a quote or `$(`): the body is not established
         return Redirect(op, _raw(fd, src) if fd else None, target, quoted, span, (), body)
