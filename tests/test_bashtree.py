@@ -857,9 +857,29 @@ def test_r10j_eq_operators_are_words():
 def test_r10j_heredoc_body_unknown_on_multiline_opener():
     for s in ("bash <<E | w 'a\nE\nb' ; h1\nh9 evil\nE\n", 'bash <<E | w "a\nE\nb"\nh9\nE\n',
               "bash <<E | w $(h1\nE\nh2\n)\nh9\nE\n"):
-        assert cmds(s)[0].redirects[0].body is None, s
+        r = parse(s)
+        assert r.status == SYNTAX_ERROR or r.commands[0].redirects[0].body is None, s
     assert cmds("cat <<E\nE\n")[0].redirects[0].body == ""
     assert cmds("cat <<E\nx\nE\n")[0].redirects[0].body == "x\n"
+
+
+def test_r11a_opener_spanning_shapes_never_give_a_body():
+    for s in ("cat <<E; : \"'\" 'a\nE\nb'\nH\nE\n", "cat <<E; : '\"' \"a\nE\nb\"\nH\nE\n",
+              "cat <<E; : \\' 'a\nE\nb'\nH\nE\n", 'cat <<E; : $(echo ")" ; echo\nE\n)\nH\nE\n',
+              "cat <<E; : $(echo ')'\nE\n)\nH\nE\n", "cat <<E; : $(echo \\)\nE\n)\nH\nE\n",
+              "cat <<E; : `echo a\nE\nb`\nH\nE\n", "cat <<E; : <(a\nE\n)\nH\nE\n",
+              "cat <<E; : $'a\\'\nE\n'\nH\nE\n", 'cat <<E; : "a\\"\nE\nb" "c"\nH\nE\n',
+              "bash <<E; : \"'\" 'a\nE\nb'\nh9 evil\nE\n"):
+        r = parse(s)
+        assert r.status == SYNTAX_ERROR or all(x.body is None for c in r.commands for x in c.redirects), s
+    # the E inside the quoted string is never blanked out of a word that is reported
+    r = parse("cat <<E; : 'a\nE\nb'\nH\nE\n")
+    assert r.status == SYNTAX_ERROR or "a\nE\nb" in [w.text for c in r.commands for w in c.words]
+    assert cmds("cat <<'E' | w\nx\nE\n")[0].redirects[0].body == "x\n"
+    assert cmds("cat <<-E\n\tx\n\tE\n")[0].redirects[0].body == "x\n"
+    assert [x.body for x in cmds("cat <<A <<B\n1\nA\n2\nB\n")[0].redirects] == ["1\n", "2\n"]
+    assert cmds("bash <<E\nh\nE\n")[0].redirects[0].body == "h\n"
+    assert cmds("cat <<E 2>&1 | tail\nx\nE\n")[0].redirects[0].body == "x\n"
 
 
 if __name__ == "__main__":

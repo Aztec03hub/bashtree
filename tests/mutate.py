@@ -277,8 +277,10 @@ MUTANTS = {
     "r10k chronic launcher": [(H, "chronic ifne flock", "flock")],
     "r10j eq operator refused again": [(C, 'c.type in ("command_name", *_WORDS, "variable_name", "$", "==", "=~")', 'c.type in ("command_name", *_WORDS, "variable_name", "$")')],
     "r10j eq operator at line end allowed": [(C, 'if nx is None or nx.type not in _WORDS or re.search(rb"\\n", src[n.end_byte:n.parent.end_byte]):', "if False:")],
-    "r10j opener body never unknown": [(C, 'b"\\n" in src[start.end_byte:hb.start_byte].rstrip(b"\\n")', "False")],
-    "r10j fallback opener body never unknown": [(C, "line1.count(b\"'\") % 2 or", "False and")],
+    "r11a opener body never unknown": [(C, "if start and _opener_spans(node, src, start.end_byte):", "if False:")],
+    "r11a fallback never refuses spanning opener": [(C, "if any(_opener_spans(t2.root_node, s2, h[2]) for h in cut[1].values()):", "if False:")],
+    "r11a spanning node must start after opener": [(C, "n.type in _MULTIROW and n.start_byte >= after", "n.type in _MULTIROW")],
+    "r11a spanning node must cross the newline": [(C, "c.start_byte <= nl < c.end_byte)", "c.start_byte <= nl)")],
 }
 TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
 
