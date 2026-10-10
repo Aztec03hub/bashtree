@@ -40,6 +40,7 @@ import select
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -1118,15 +1119,38 @@ class _Child:
 
     def __init__(self):
         self.owner = os.getpid()
+        # stderr goes to a file, not a pipe nobody drains: a noisy child cannot stall on it
+        self.err = tempfile.TemporaryFile()
         self.proc = subprocess.Popen([sys.executable, "-I", "-c", _child_code()], stdin=subprocess.PIPE,
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                     stdout=subprocess.PIPE, stderr=self.err)
+        os.set_blocking(self.proc.stdin.fileno(), False)  # writes are bounded by the deadline (see _write)
+
+    @staticmethod
+    def _wait(fd, event, end):
+        """True when fd is ready for event, False at the deadline. poll, not select: select fails for fd >= 1024."""
+        left = end - time.monotonic()
+        if left <= 0:
+            return False
+        p = select.poll()
+        p.register(fd, event)
+        return bool(p.poll(left * 1000 + 1))
+
+    def _write(self, data, end):
+        """True when all of data went into the pipe, False at the deadline. Raises BrokenPipeError."""
+        fd, view = self.proc.stdin.fileno(), memoryview(data)
+        while view:
+            try:
+                view = view[os.write(fd, view):]
+            except BlockingIOError:
+                if not self._wait(fd, select.POLLOUT, end):
+                    return False
+        return True
 
     def _read(self, n, end):
         """n bytes, or None at the deadline, or what arrived before the child's end of file."""
         fd, buf = self.proc.stdout.fileno(), b""
         while len(buf) < n:
-            left = end - time.monotonic()
-            if left <= 0 or not select.select([fd], [], [], left)[0]:
+            if not self._wait(fd, select.POLLIN, end):
                 return None
             chunk = os.read(fd, n - len(buf))
             if not chunk:
@@ -1134,13 +1158,18 @@ class _Child:
             buf += chunk
         return buf
 
+    def _stderr_tail(self):
+        self.err.seek(0, 2)
+        self.err.seek(max(0, self.err.tell() - 2000))
+        return self.err.read()
+
     def ask(self, src):
         """("ok", Result) | ("timeout", None) | ("dead", (returncode, stderr))."""
         end = time.monotonic() + DEADLINE
         body = None
         try:
-            self.proc.stdin.write(struct.pack(">Q", len(src)) + src)
-            self.proc.stdin.flush()
+            if not self._write(struct.pack(">Q", len(src)) + src, end):
+                return "timeout", None
             head = self._read(8, end)
             if head is None:
                 return "timeout", None
@@ -1151,19 +1180,26 @@ class _Child:
         except BrokenPipeError:
             pass                                         # the child died before reading: reported as dead below
         if body is None or len(body) < struct.unpack(">Q", head)[0]:
-            self.proc.wait()
-            return "dead", (self.proc.returncode, self.proc.stderr.read())
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:            # closed its stdout but still runs: it is no use to us
+                self.proc.kill()
+                self.proc.wait()
+            return "dead", (self.proc.returncode, self._stderr_tail())
         return "ok", pickle.loads(body)
 
     def stop(self):
         self.proc.kill()
-        self.proc.wait()
-        for f in (self.proc.stdin, self.proc.stdout, self.proc.stderr):
-            f.close()
+        try:
+            self.proc.wait(timeout=5)
+        finally:
+            for f in (self.proc.stdin, self.proc.stdout, self.err):
+                f.close()
 
 
 _child = None
 _child_lock = threading.Lock()
+EXIT_LOCK_WAIT = 2.0
 
 
 def _forget_child_after_fork():
@@ -1177,8 +1213,16 @@ os.register_at_fork(after_in_child=_forget_child_after_fork)
 
 @atexit.register
 def _stop_child():
-    if _child is not None and _child.owner == os.getpid() and _child.proc.poll() is None:
-        _child.stop()
+    c = _child
+    if c is None or c.owner != os.getpid() or c.proc.poll() is not None:
+        return
+    if _child_lock.acquire(timeout=EXIT_LOCK_WAIT):
+        try:
+            c.stop()
+        finally:
+            _child_lock.release()
+    else:
+        c.proc.kill()                                    # a thread is stuck mid-request: end the child, leave its pipes to that thread
 
 
 def _parse_in_child(src):
@@ -1188,7 +1232,14 @@ def _parse_in_child(src):
     with _child_lock:
         if _child is None or _child.owner != os.getpid() or _child.proc.poll() is not None:
             _child = _Child()
-        kind, data = _child.ask(src)
+        try:
+            kind, data = _child.ask(src)
+        except BaseException:
+            # Anything else (^C, a parent-side error): a reply may still be on its way, and the next
+            # request must never read it as its own answer.
+            c, _child = _child, None
+            c.stop()
+            raise
         if kind == "ok":
             return data
         if _child.proc.poll() is None:
