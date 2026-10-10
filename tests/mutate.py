@@ -58,7 +58,7 @@ MUTANTS = {
     "no pipe cap": [(C, "    if text.count(\"|\") > MAX_PIPES:", "    if False:")],
     "no byte cap": [(C, "    if len(src) > MAX_BYTES:", "    if False:")],
     "no command cap": [(C, "            if len(out) > MAX_COMMANDS:\n                return None", "")],
-    "lone $ dropped": [(C, '"variable_name", "$")', '"variable_name")')],
+    "lone $ dropped": [(C, '"variable_name", "$", "==", "=~")', '"variable_name", "==", "=~")')],
     "c-style for body is header": [(C, '            return Ancestor("loop_body", span)       # `for ((;;)) { a; }`', '            return Ancestor("loop_header", span)')],
     # helpers
     "find -exec missed": [(H, "            if a in FIND_EXEC:", "            if False:")],
@@ -265,6 +265,10 @@ MUTANTS = {
     "r9h <<- dash left in place": [(C, "out[o:o + 2 + dash] =", "out[o:o + 2] =")],
     "r9h quoted delimiter unnoticed": [(C, "quoted = raw != delim", "quoted = False")],
     "r9h continued opener unnoticed": [(C, "rstrip(b\"\\\\\")) & 1:", "rstrip(b\"\\\\\")) & 0:")],
+    "r10j eq operator refused again": [(C, 'c.type in ("command_name", *_WORDS, "variable_name", "$", "==", "=~")', 'c.type in ("command_name", *_WORDS, "variable_name", "$")')],
+    "r10j eq operator at line end allowed": [(C, 'if nx is None or re.search(rb"\\n", src[n.end_byte:nx.start_byte]):', "if False:")],
+    "r10j opener body never unknown": [(C, 'b"\\n" in src[start.end_byte:hb.start_byte].rstrip(b"\\n")', "False")],
+    "r10j fallback opener body never unknown": [(C, "line1.count(b\"'\") % 2 or", "False and")],
 }
 TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
 

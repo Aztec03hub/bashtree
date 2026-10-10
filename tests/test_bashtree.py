@@ -580,7 +580,7 @@ def test_round6():
         "echo `date` `rm -f y`", "`a`\n`b`",                                  # one lexeme for two backtick pairs
         "ls\n\\\nrm -rf x", "cd /w\n\\\nrm -rf y",                               # a continuation opening a line
         "cat <<EE\nE\\\nE\necho HIDDEN\nEE", "cat <<E\nfoo\\\nE\necho SHOWN\nE",    # a continuation near a heredoc
-        "echo a ==\nrm -rf x", "rm == x",                                       # `==` dropped, and the newline after it
+        "echo a ==\nrm -rf x", "rm ==",                                       # `==` dropped, and the newline after it
         "M1 >f $\nM6 >f -rf x",                                                  # `$` joined to the next line
         "a | (b) >f rm -rf y", "a && { b; } >f rm y", "a | [[ x ]] >f rm",        # words after a redirect, last stage not a command
         "echo a >f b \\\n\n2>&1 rm -rf x",                  # the next line taken into a command
@@ -803,6 +803,29 @@ def test_r9h_continuation_in_opener():
                 "cat <<a | cat\n1\na\ncat <<b 2>&1 | cat \\\nz\n2\nb\n"):
         r = parse(bad)
         assert r.status == SYNTAX_ERROR and r.reason == "a heredoc body the fallback cannot read", (bad, r)
+
+
+def test_r10j_eq_operators_are_words():
+    for s, w in (("echo == x", ["echo", "==", "x"]), ("echo a == b", ["echo", "a", "==", "b"]),
+                 ("echo =~ y", ["echo", "=~", "y"]), ("rm == x", ["rm", "==", "x"]),
+                 ("echo == $d", ["echo", "==", "$d"]), ("echo; echo == x == y", None)):
+        r = parse(s)
+        assert r.status == "ok", (s, r)
+        if w:
+            assert [x.text for x in cmds(s)[0].words] == w, s
+    assert "ok" == parse("echo ==$(b)").status and "b" in [c.name for c in cmds("echo ==$(b)")]
+    assert parse("[[ a == b ]]").status == "ok"
+    # the operator at a line end swallows the line in the grammar: refused
+    for bad in ("echo ==\nrm -rf x", "echo x ==", "echo ==\\\n x"):
+        assert parse(bad).status == SYNTAX_ERROR, bad
+
+
+def test_r10j_heredoc_body_unknown_on_multiline_opener():
+    for s in ("bash <<E | w 'a\nE\nb' ; h1\nh9 evil\nE\n", 'bash <<E | w "a\nE\nb"\nh9\nE\n',
+              "bash <<E | w $(h1\nE\nh2\n)\nh9\nE\n"):
+        assert cmds(s)[0].redirects[0].body is None, s
+    assert cmds("cat <<E\nE\n")[0].redirects[0].body == ""
+    assert cmds("cat <<E\nx\nE\n")[0].redirects[0].body == "x\n"
 
 
 if __name__ == "__main__":
