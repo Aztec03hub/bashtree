@@ -946,6 +946,16 @@ def test_r12_b2c_wrong_body_is_refused():
         assert parse(t).status == SYNTAX_ERROR, t
 
 
+def test_r12_b2c_declare_and_same_delimiter():
+    for t in ("cat <<E; declare -a a=(\nE\n)\nH\nE\n", "cat <<EOF && cat <<EOF\na\nEOF\nb\nEOF\n"):
+        assert parse(t).status == SYNTAX_ERROR, t
+
+
+def test_r12_spanning_opener_body_is_none():
+    for t in ("cat <<E && echo \"a\nb\"\nhi\nE\n", "cat <<E | echo \"a\nb\"\nhi\nE\n"):
+        assert cmds(t)[0].redirects[0].body is None, t
+
+
 def test_child_has_a_memory_cap():
     from unittest import mock
     import subprocess as sp

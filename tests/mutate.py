@@ -136,9 +136,8 @@ MUTANTS = {
     "redirect words not merged": [(C, "        words = sorted(words + [w for r in reds for w in r.words], key=lambda w: w.span[0])", "        pass")],
     "redirect words not read": [(C, '    if node.type == "file_redirect" and dest is not None:', "    if False:")],
     "redirect words on a compound": [(C, 'if body.type not in ("command", "unset_command"):', "if False:")],
-    "heredoc end: text after": [(C, 'if lead or src[n.end_byte:n.end_byte + 1] not in (b"", b"\\n"):', "if lead:")],
-    "heredoc end: text before": [(C, 'if lead or src[n.end_byte:n.end_byte + 1] not in (b"", b"\\n"):', 'if src[n.end_byte:n.end_byte + 1] not in (b"", b"\\n"):')],
-    "heredoc end: tabs on <<E": [(C, 'if any(c.type == "<<-" for c in n.parent.children):', "if True:")],
+    # r12: the three "heredoc end" mutants (text after / before the terminator, tabs on <<E) were removed as equivalent:
+    # _placement refuses every input they change (no line equal to the delimiter at the tree's place).
     "case terminator anywhere": [(C, 'if t in (";;", ";&", ";;&") and not n.is_named and n.parent.type != "case_item":', "if False:")],
     "esac as argument": [(C, 'if t == "case_statement" and len(kids) > 2', 'if False and len(kids) > 2')],
     "unicode names": [(C, '_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*', '_NAME = re.compile(r"[A-Za-z_]\\w*')],
