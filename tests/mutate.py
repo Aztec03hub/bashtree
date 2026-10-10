@@ -243,8 +243,9 @@ MUTANTS = {
     # round 8, slice C
     "launchers unseen": [(H, "    if prog in LAUNCHERS or", "    if False or")],
     "su without command is nothing": [(H, '        return [Nested(prog, "unknown", words=tuple(extra))]   #', '        return [Nested(prog, "unknown", words=tuple(extra))] if extra else []   #')],
-    "parse in process": [(C, "    if ALWAYS_CHILD or len(src) > IN_PROCESS_BYTES or not text.isascii():", "    if False:")],
-    "non-ascii parsed in process": [(C, " or not text.isascii():", ":")],
+    "parse in process": [(C, "    if ALWAYS_CHILD or len(src) > IN_PROCESS_BYTES or _ASTRAL.search(text):", "    if False:")],
+    "astral parsed in process": [(C, " or _ASTRAL.search(text):", ":")],
+    "all non-ascii to the child": [(C, "or _ASTRAL.search(text):", "or not text.isascii():")],
     # round 9i
     "r9i nested does not unwrap": [(H, "    if unwrap_first and words:\n", "    if False:\n")],
     "r9i source unseen": [(H, ' or prog in (".", "source"):', ':')],
@@ -300,8 +301,10 @@ def run(item):
         try:
             res = subprocess.run([sys.executable, "-c", TEST], cwd=d, capture_output=True,
                                  text=True, timeout=240)           # every parse runs in a child now: the suite takes 40 s alone
+            if res.returncode < 0:      # the interpreter itself died (SIGSEGV ...): the test caught the mutation
+                return f"{name:32} -> killed (crash)"
             if res.returncode and not any(e in res.stderr for e in ("AssertionError", "ValueError", "IndexError", "RuntimeError")):
-                return f"{name:32} -> ERROR, not an assertion: {res.stderr.strip().splitlines()[-1][:80]}"
+                return f"{name:32} -> ERROR, not an assertion: {(res.stderr.strip().splitlines() or ['(no stderr)'])[-1][:80]}"
             return f"{name:32} -> {'killed' if res.returncode else 'SURVIVED'}"
         except subprocess.TimeoutExpired:
             return f"{name:32} -> killed (timeout)"

@@ -922,6 +922,29 @@ def test_merge_guards_r11():
     assert not git_args(["git", "-c", "core.sshCommand=x", "push"]).ok
 
 
+def test_child_only_when_needed():
+    from unittest import mock
+    from bashtree import core
+    with mock.patch.object(core, "_parse_in_child", wraps=core._parse_in_child) as child:
+        assert parse("echo caf\u00e9 \u65e5\u672c").status == OK       # non-ASCII, in the BMP: in process
+        assert child.call_count == 0
+        assert parse("echo hi >f${\U0010ffff}").status in (TOO_BIG, SYNTAX_ERROR)   # outside the BMP: the child
+        assert child.call_count == 1
+
+
+def test_child_has_a_memory_cap():
+    from unittest import mock
+    import subprocess as sp
+    from bashtree import core
+    seen = []
+    def fake(args, **kw):
+        seen.append(args[3])
+        return sp.CompletedProcess(args, 0, core.pickle.dumps(core.Result(OK, ())), b"")
+    with mock.patch("bashtree.core.subprocess.run", side_effect=fake):
+        core._parse_in_child(b"echo hi")
+    assert "RLIMIT_AS" in seen[0] and str(core.CHILD_MEMORY) in seen[0]
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
