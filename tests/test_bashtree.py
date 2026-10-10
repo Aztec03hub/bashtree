@@ -1195,6 +1195,14 @@ def test_r14_child_exit_takes_the_lock_but_never_hangs():
     assert parse(_big_script()).status == OK
 
 
+def test_r15_heredoc_body_keeps_whitespace_only_leading_lines():
+    body = lambda t: parse(t).commands[0].redirects[0].body
+    assert body("cat <<E\n \nx\nE\n") == " \nx\n"
+    assert body("cat <<E\n\t\n\nx\nE\n") == "\t\n\nx\n"
+    assert body("cat <<E\nE\n") == ""
+    assert [r.body for c in parse("cat <<A; cat <<B\n\nA\n \nb\nB\n").commands for r in c.redirects] == ["\n", " \nb\n"]
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
