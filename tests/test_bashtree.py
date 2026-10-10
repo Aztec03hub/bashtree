@@ -282,9 +282,15 @@ def test_status():
     assert parse("{ " + "a;" * 6000 + " }\n" + "{ " + "a;" * 6000 + " }").status == TOO_BIG  # spread out
     assert len(cmds("env " * 16000 + "x")[0].words) == 16001 and parse("x " + "$a" * 12000).status == OK
     assert parse("))" * 5001).status == TOO_BIG and parse("$[" * 50000).status == TOO_BIG   # MAX_BRACKETS
+
+
+def test_status_deadline():
     # The grammar always runs in a child, given up at DEADLINE.
     r = parse("a?" * 40000)
     assert (r.status, r.reason) == (TOO_BIG, f"parsing took over {DEADLINE} s"), r
+
+
+def test_status_child():
     assert parse("echo " + "a" * 20000).commands[0].words[1].text == "a" * 20000        # the child's result
     # The child imports this same package, also when the parent found it through '' (its cwd).
     code = "from bashtree import parse; print(parse('echo ' + 'a' * 20000).status)"
@@ -294,6 +300,9 @@ def test_status():
     assert parse("a|" * 2001 + "a").status == TOO_BIG                # MAX_PIPES, before the grammar
     assert parse("x " + "é" * (1 << 19)).status == TOO_BIG           # MAX_BYTES counts bytes
     assert len(cmds("#c\n" * 2000 + "a")) == 1 and len(cmds("a|" * 2000 + "a")) == 2001
+
+
+def test_status_speed():
     for slow in ("$(" * 1500 + "x" + ")" * 1500, " && ".join(["a"] * 5000),
                  "if a; then " * 500 + "b" + "; fi" * 500, '"$(' * 3000 + "x",
                  "#c\n" * 20000 + "a", "a|" * 20000 + "a", "a;" * 100000, "a;" * 500000, "(" * 60000 + "x", "`" * 60000 + "x", "env " * 16000 + "x",
