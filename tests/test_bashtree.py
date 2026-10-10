@@ -932,6 +932,20 @@ def test_child_only_when_needed():
         assert child.call_count == 1
 
 
+def test_r12_b7_command_after_heredoc_is_not_hidden():
+    for t in ("cat <<E && {\nE\n:; }\ntouch hit\nE\n", "cat <<A && cat <<B\nx\nA\ny\nB\ntouch hit\nA\n",
+              "cat <<E | {\nE\n:; }\ntouch hit\nE\n"):
+        assert parse(t).status == SYNTAX_ERROR, t
+    assert cmds("cat <<A; cat <<B\nx\nA\ny\nB\n")[1].redirects[0].body == "y\n"
+    assert cmds("cat <<E | tail\nhi\nE\nls\n")[0].redirects[0].body == "hi\n"
+
+
+def test_r12_b2c_wrong_body_is_refused():
+    for t in ("cat >o <<E ; a=(x\nE\ny)\nH\nE\n", "cat >o <<E ; ((1+\nE\n+1))\nH\nE\n",
+              "cat >o <<E && : \\\nE\n\nH\nE\n"):
+        assert parse(t).status == SYNTAX_ERROR, t
+
+
 def test_child_has_a_memory_cap():
     from unittest import mock
     import subprocess as sp

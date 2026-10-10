@@ -17,6 +17,8 @@ C, H = "core.py", "helpers.py"
 MUTANTS = {
     # parsing
     "syntax errors parsed": [(C, "    if tree.root_node.has_error:\n        return Result(SYNTAX_ERROR", "    if False:\n        return Result(SYNTAX_ERROR")],
+    "heredoc placement unchecked": [(C, "or _placement(tree.root_node, src)", "")],
+    "multi-line array opener allowed": [(C, 'or n.type == "array"\n', "\n")],
     "no heredoc cap": [(C, "    if text.count(\"<<\") > MAX_HEREDOCS:", "    if False:")],
     "no array cap": [(C, "    if text.count(\"=(\") > MAX_ARRAYS:", "    if False:")],
     "escapes in \"...\" kept": [(C, "        return _unescape(raw[1:-1], '$`\"\\\\\\n')", "        return raw[1:-1]")],
