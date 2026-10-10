@@ -186,8 +186,8 @@ MUTANTS = {
     "memory error is an error": [(C, '    if code == 1 and b"MemoryError" in err[-2000:]:', "    if False:")],
     "no restart after a crash": [(C, "        _child = None\n    if kind == \"timeout\":", "    if kind == \"timeout\":"),
                                  (C, " or _child.proc.poll() is not None:", ":")],
-    "no deadline": [(C, "            if left <= 0 or not select.select([fd], [], [], left)[0]:\n                return None",
-                     "            select.select([fd], [], [])")],
+    "no deadline": [(C, "            if not self._wait(fd, select.POLLIN, end):\n                return None",
+                     "            self._wait(fd, select.POLLIN, time.monotonic() + 1e6)")],
     "timed-out child left running": [(C, "        if _child.proc.poll() is None:\n            _child.stop()\n", "")],
     "child shared across fork": [(C, " or _child.owner != os.getpid()", ""),
                                  (C, "os.register_at_fork(after_in_child=_forget_child_after_fork)", ""),
@@ -298,6 +298,13 @@ MUTANTS = {
     "r11a opener body never unknown": [(C, "if start and _opener_spans(node, src, start.end_byte):", "if False:")],
     "r11a fallback never refuses spanning opener": [(C, "if any(_opener_spans(t2.root_node, s2, h[2]) for h in cut[1].values()):", "if False:")],
     "r11a spanning node must cross the newline": [(C, "c.start_byte <= nl < c.end_byte)", "c.start_byte <= nl)")],
+    # r14: the parse child
+    "r14 stale reply after an error": [(C, "        except BaseException:\n", "        except ZeroDivisionError:\n")],
+    "r14 select over fd 1024": [(C, "        p = select.poll()\n        p.register(fd, event)\n        return bool(p.poll(left * 1000 + 1))",
+                                 "        return any(select.select([fd], [fd], [], left))")],
+    "r14 blocking child write": [(C, "        os.set_blocking(self.proc.stdin.fileno(), False)", "        pass")],
+    "r14 stderr pipe undrained": [(C, "stdout=subprocess.PIPE, stderr=self.err)", "stdout=subprocess.PIPE, stderr=subprocess.PIPE)")],
+    "r14 exit stop without the lock": [(C, "    if _child_lock.acquire(timeout=EXIT_LOCK_WAIT):", "    if True:")],
 }
 def _test(only=""):
     return ("import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; "
@@ -308,7 +315,8 @@ TEST = _test()
 # Mutants of the parse child run only the tests with "child" in their name (the full suite takes 25 s).
 CHILD_ONLY = {"killed child is an error", "memory error is an error", "no restart after a crash", "no deadline",
               "timed-out child left running", "child shared across fork", "child memory not capped",
-              "child not isolated"}
+              "child not isolated", "r14 stale reply after an error", "r14 select over fd 1024", "r14 blocking child write",
+              "r14 stderr pipe undrained", "r14 exit stop without the lock"}
 
 
 def run(item):

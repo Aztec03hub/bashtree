@@ -1083,6 +1083,103 @@ def test_r13_escaped_quote_does_not_hide_expansion():
     assert git_args(ok.commands[0].words).ok
 
 
+def _fresh_child(core):
+    with core._child_lock:
+        if core._child is not None:
+            core._child.stop()
+            core._child = None
+
+
+def test_r14_child_error_in_ask_does_not_leave_a_stale_reply():
+    from unittest import mock
+    from bashtree import core
+    a = "echo a; " * 1500 + "echo AAA"
+    b = "ls -l; " * 1500 + "echo BBB"
+    assert parse(a).status == OK
+    real = core._Child._read
+    def boom(self, n, end):
+        raise KeyboardInterrupt
+    with mock.patch.object(core._Child, "_read", boom):
+        try:
+            parse(a)
+            raise AssertionError("the interrupt was swallowed")
+        except KeyboardInterrupt:
+            pass
+    assert core._child is None
+    assert parse(b) == core._parse_bytes(b.encode())
+
+
+def test_r14_child_with_fd_over_1024():
+    import os
+    import resource
+    from bashtree import core
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(hard, 4096) if hard != resource.RLIM_INFINITY else 4096, hard))
+    fds = []
+    try:
+        _fresh_child(core)
+        fds = [os.dup(0) for _ in range(1100)]
+        r = parse(_big_script())
+        assert r.status == OK, r
+        assert core._child.proc.stdout.fileno() >= 1024
+    finally:
+        for fd in fds:
+            os.close(fd)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+
+def test_r14_child_write_has_a_deadline():
+    import os
+    import signal
+    import threading
+    import time
+    from unittest import mock
+    from bashtree import core
+    assert parse(_big_script()).status == OK
+    pid = core._child.proc.pid
+    os.kill(pid, signal.SIGSTOP)
+    out = []
+    with mock.patch.object(core, "DEADLINE", 0.5):
+        t = threading.Thread(target=lambda: out.append(parse("echo aaaa\n" * 90000)), daemon=True)
+        t0 = time.monotonic()
+        t.start()
+        t.join(10)
+    assert not t.is_alive(), "a stopped child blocked the writer"
+    assert out[0].status == TOO_BIG and "took over" in out[0].reason, out
+    assert time.monotonic() - t0 < 5
+    assert parse(_big_script()).status == OK
+
+
+def test_r14_child_noisy_stderr_does_not_stall_it():
+    from unittest import mock
+    from bashtree import core
+    real = core._child_code
+    noise = "import sys; sys.stderr.write('x' * 300000); sys.stderr.flush()\n"
+    _fresh_child(core)
+    with mock.patch.object(core, "_child_code", lambda: noise + real()):
+        r = parse(_big_script())
+    assert r.status == OK, r
+
+
+def test_r14_child_exit_takes_the_lock_but_never_hangs():
+    import time
+    from unittest import mock
+    from bashtree import core
+    assert parse(_big_script()).status == OK
+    c = core._child
+    core._child_lock.acquire()                    # a worker is "mid-request"
+    try:
+        with mock.patch.object(core, "EXIT_LOCK_WAIT", 0.05):
+            t0 = time.monotonic()
+            core._stop_child()
+        assert time.monotonic() - t0 < 2
+        c.proc.wait(timeout=5)                    # the child is ended ...
+        assert not c.proc.stdin.closed            # ... but its pipes were not closed under the worker
+    finally:
+        core._child_lock.release()
+    assert parse(_big_script()).status == OK
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
