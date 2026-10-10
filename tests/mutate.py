@@ -308,9 +308,12 @@ MUTANTS = {
     "r14 stderr pipe undrained": [(C, "stdout=subprocess.PIPE, stderr=self.err)", "stdout=subprocess.PIPE, stderr=subprocess.PIPE)")],
     "r14 exit stop without the lock": [(C, "    if _child_lock.acquire(timeout=EXIT_LOCK_WAIT):", "    if True:")],
 }
+SLOW = {'test_status_deadline', 'test_status_speed'}      # most of the suite's 20 s: run last so a mutant any other test kills exits early
+
+
 def _test(only=""):
     return ("import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; "
-            f"[f() for n, f in sorted(vars(t).items()) if n.startswith('test_') and {only!r} in n]")
+            f"[f() for n, f in sorted(vars(t).items(), key=lambda kv: (kv[0] in {SLOW!r}, kv[0])) if n.startswith('test_') and {only!r} in n]")
 
 
 TEST = _test()
@@ -359,7 +362,7 @@ if __name__ == "__main__":
     print(control.replace("SURVIVED", "passes, as it must"))
     if "SURVIVED" not in control:
         sys.exit("the tests fail without any mutation; fix that first")
-    with ThreadPoolExecutor(16) as ex:
+    with ThreadPoolExecutor(24) as ex:
         results = list(ex.map(run, MUTANTS.items()))
     print("\n".join(results))
     sys.exit(0 if all(" killed" in r for r in results) else 1)
