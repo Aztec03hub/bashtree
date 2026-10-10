@@ -116,7 +116,7 @@ MUTANTS = {
     'continuation in quotes flagged': [(C, 'in_word and root.descendant_for_byte_range(p, p + 2).type not in _OPAQUE', 'in_word')],
     'escaped backslash is a continuation': [(C, '        if (p - j) % 2:', '        if True:')],
     '\\cX kept': [(C, '        elif s[0] == "c" and len(s) == 2:', '        elif False:')],
-    'env -S not split': [(H, '                words = [words[0]] + pieces + rest\n                lits = [True] * (1 + len(pieces)) + lits[len(lits) - len(rest):]\n                continue', '                pass')],
+    'env -S not split': [(H, '                words = [words[0]] + pieces + rest\n                lits = [True] * (1 + len(pieces)) + lits[len(lits) - len(rest):]\n                again = True\n                continue', '                pass')],
     'env -S $ trusted': [(H, 'if any(ch in split[0] for ch in "$\\\\#"):', 'if False:')],
     'env options after -S': [(H, 'until={"-S", "--split-string"} if name == "env" else ()', 'until=()')],
     'env -S \\v not split': [(H, '" \\t\\r\\n\\v\\f"', '" \\t\\r\\n"')],
@@ -249,8 +249,8 @@ MUTANTS = {
     "r9i nested does not unwrap": [(H, "    if unwrap_first and words:\n", "    if False:\n")],
     "r9i unwrap stop is nothing": [(H, '        if u.stopped:\n            return [Nested(', '        if u.stopped:\n            return [] or [Nested(')],
     "r9i source unseen": [(H, ' or prog in (".", "source"):', ':')],
-    "r9i git glued -c accepted": [(H, "        elif a.startswith(\"-\"):\n            return GitArgs(", "        elif a.startswith(\"-c\") and False:\n            pass\n        elif a.startswith(\"-\"):\n            return GitArgs(")],
-    "r9i git -C value unread": [(H, "            opts.append((a, args[i + 1]))\n            i += 1", "            opts.append((a, args[i + 1]))")],
+    "r9i git glued -c accepted": [(H, "        elif a.startswith(\"-\"):\n            return GitArgs(", "        elif a.startswith(\"-c\") and len(a) > 2:\n            opts.append((\"-c\", a[2:]))\n        elif a.startswith(\"-\"):\n            return GitArgs(")],
+    "r9i git -C value unread": [(H, "            i += 1\n        elif eq and name in _GIT_VALUES:", "        elif eq and name in _GIT_VALUES:")],
     "r9i git unknown not reported": [(H, "tuple(args[i:]), False, a)", "tuple(args[i:]), False, None)")],
     "r9i nonliteral prefix unseen": [(H, "        if bad(i):\n            return nonlit(i)", "        if False:\n            return nonlit(i)")],
     "r9i nonliteral env unseen": [(H, "                if bad2(rest, j):\n                    return Unwrapped(tuple(rest[j:]), tuple(peeled), \"nonliteral-assignment\", tuple(options))\n                j += 1                                   # env", "                j += 1                                   # env")],
@@ -265,6 +265,16 @@ MUTANTS = {
     "r9h <<- dash left in place": [(C, "out[o:o + 2 + dash] =", "out[o:o + 2] =")],
     "r9h quoted delimiter unnoticed": [(C, "quoted = raw != delim", "quoted = False")],
     "r9h continued opener unnoticed": [(C, "rstrip(b\"\\\\\")) & 1:", "rstrip(b\"\\\\\")) & 0:")],
+    # r10k
+    "r10k git cmd key unseen": [(H, "    if parts[0] == \"pager\" or k in _GIT_CMD_KEYS", "    if False or k in _GIT_CMD_KEYS")],
+    "r10k git alias bang unseen": [(H, "value.startswith(\"!\") or _nonlit(value))", "False)")],
+    "r10k git config-env unseen": [(H, "            if name == \"--config-env\":", "            if False:")],
+    "r10k git nonliteral subcommand": [(H, "        elif _nonlit(a, lits[i]):", "        elif False:")],
+    "r10k git key case": [(H, "parts = key.lower().split(\".\")", "parts = key.split(\".\")")],
+    "r10k nonliteral program": [(H, "    if words and _nonlit(words[0], lits[0]):", "    if False:")],
+    "r10k nested nonliteral program": [(H, "    if _nonlit(words[0]):  ", "    if False:  ")],
+    "r10k env -S wrapper twice": [(H, "        if again:\n", "        if False:\n")],
+    "r10k chronic launcher": [(H, "chronic ifne flock", "flock")],
 }
 TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
 

@@ -805,6 +805,42 @@ def test_r9h_continuation_in_opener():
         assert r.status == SYNTAX_ERROR and r.reason == "a heredoc body the fallback cannot read", (bad, r)
 
 
+def test_r10k_git_args_commands_and_nonliteral():
+    for k in ("alias.p=!touch x", "core.fsmonitor=x", "CORE.SshCommand=x", "core.pager=x", "core.editor=x",
+              "core.hooksPath=x", "credential.helper=x", "credential.https://h.helper=x", "diff.external=x",
+              "diff.foo.textconv=x", "filter.f.smudge=x", "gpg.program=x", "gpg.ssh.program=x",
+              "sequence.editor=x", "pager.log=x", "include.path=x", "alias.p=$x"):
+        g = git_args(["git", "-c", k, "p"])
+        assert (g.ok, g.runs_command, g.unknown, g.subcommand) == (False, True, k, None), k
+    g = git_args(["git", "--config-env=alias.p=VAR", "p"])
+    assert (g.ok, g.runs_command) == (False, True)
+    g = git_args(["git", "-c", "user.name=x", "-c", "alias.p=push", "p"])
+    assert (g.ok, g.runs_command, g.subcommand) == (True, False, "p")
+    ws = parse('git -c core.pager=x status').commands[0].words
+    assert git_args(ws).runs_command and git_args(parse("git -C d push").commands[0].words).subcommand == "push"
+    for bad in ('git $x push', 'git "$x" push', 'git pu* x', 'git p{a,b}', 'git `x` push'):
+        g = git_args(parse(bad).commands[0].words)
+        assert not g.ok and g.subcommand is None and not g.runs_command, bad
+    for bad in ("$x", "p`x`", "pu*", "p{a,b}"):
+        assert not git_args(["git", bad, "push"]).ok, bad
+
+
+def test_r10k_unwrap_nonliteral_program_and_launchers():
+    for ws in (["sudo", "$S", "bash", "-c", "x"], ["env", "$E", "bash", "-c", "x"], ["$S", "x"], ["env", "A=1", "pu*"]):
+        u = unwrap(ws)
+        assert u.stopped == "nonliteral-program" and u.words[-1] != "bash" or u.words[0] in ("$S", "pu*"), u
+        assert nested(ws)[0].kind == "unknown", ws
+    u = unwrap(parse('sudo "$S" bash').commands[0].words)
+    assert u.stopped == "nonliteral-program" and u.words == ("$S", "bash")
+    assert unwrap(["sudo", "[", "-f", "x", "]"]).stopped is None and unwrap(["sudo", "git"]).stopped is None
+    assert nested(["$S", "x"], unwrap_first=False) == [_n("$S", "unknown", words=("x",))]
+    assert unwrap(["env", "-S", "touch a"]).wrappers == ("env",)
+    assert unwrap(["env", "-S", "env -i touch a"]).wrappers == ("env", "env")
+    assert unwrap(["env", "-S", "touch a"]).words == ("touch", "a")
+    assert nested(["chronic", "sh", "-c", "x"]) == [_n("chronic", "unknown", words=("sh", "-c", "x"))]
+    assert nested(["ifne", "-n", "sh"])[0].kind == "unknown"
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
