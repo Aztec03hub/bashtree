@@ -126,7 +126,8 @@ class Redirect:
     words: tuple = ()  # words written after the target (`>f a b`: a, b). The shell
     #                    hands them to the command, and Command.words includes them
     body: str | None = None   # << / <<-: the text bash passes on stdin (tabs stripped for <<-);
-    #                    <<<: the word's text. None for an unquoted heredoc holding a substitution
+    #                    <<<: the word's text. None means "could not read", never "empty": an unquoted
+    #                    heredoc holding a substitution, or an opener line spanning lines
 
 
 @dataclass(frozen=True)
@@ -391,6 +392,8 @@ def _redirect_plain(node, src):
         fd = next((c for c in node.children if c.type == "file_descriptor"), None)
         hb = next((c for c in node.children if c.type == "heredoc_body"), None)
         body = _heredoc_text(src[hb.start_byte:hb.end_byte] if hb else b"", op == "<<-", quoted)
+        if start and hb and b"\n" in src[start.end_byte:hb.start_byte].rstrip(b"\n"):
+            body = None           # the opener line spans lines (a quote or `$(`): the body is not established
         return Redirect(op, _raw(fd, src) if fd else None, target, quoted, span, (), body)
     fd_node = node.child_by_field_name("descriptor")
     dest = node.child_by_field_name("destination")
@@ -527,7 +530,7 @@ def _command(node, kids, src, st):
                 words.append(_word(c, src))           # `1=2 cmd`: the command is `1=2`
             elif c.type == "variable_assignment":
                 assigns.append(_assignment(c, src))
-            elif c.type in ("command_name", *_WORDS, "variable_name", "$"):
+            elif c.type in ("command_name", *_WORDS, "variable_name", "$", "==", "=~"):
                 w = _word(c.children[0] if c.type == "command_name" and c.children else c, src)
                 if assigns and not words and assigns[-1].span[1] == c.start_byte:
                     assigns[-1] = _merge_assignment(assigns[-1], w)   # a value the grammar cut short
@@ -831,7 +834,9 @@ def _unparsed(root, src):
                 if re.search(rb"(?<!\\)\n", src[a.end_byte:b.start_byte]):
                     return "the next line was taken for part of this command"
         if t in ("==", "=~") and n.parent.type in ("command", "declaration_command", "unset_command"):
-            return "a [[ operator outside [[ ]]"     # dropped, and it swallows the newline after it
+            nx = n.next_sibling       # an ordinary word outside [[ ]]; unsafe only when it swallowed the line end
+            if nx is None or nx.type not in _WORDS or re.search(rb"\n", src[n.end_byte:n.parent.end_byte]):
+                return "a [[ operator outside [[ ]]"
         if t == "heredoc_body" and not _quoted_heredoc(n, src):
             end = next((c.end_byte for c in n.parent.children if c.type == "heredoc_end"), n.end_byte)
             bodies.append((n.start_byte, end))
@@ -1076,6 +1081,9 @@ def _heredoc_cut(src):
             body = _heredoc_text(src[start:cur], dash, quoted)
             if body is None:
                 return FALLBACK_REFUSED
+            line1 = src[:nl][src.rfind(b"\n", 0, g.start()) + 1:]
+            if line1.count(b"'") % 2 or line1.count(b'"') % 2 or line1.count(b"$(") > line1.count(b")"):
+                body = None           # the opener line goes on past this newline inside a quote or `$(`: no body established
             out[start:end] = re.sub(rb"[^\n]", b" ", src[start:end])
             o = g.start()
             out[o:o + 2 + dash] = b"<" + b" " * (1 + dash)
