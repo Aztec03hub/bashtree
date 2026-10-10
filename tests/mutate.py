@@ -266,7 +266,7 @@ MUTANTS = {
     "r9h quoted delimiter unnoticed": [(C, "quoted = raw != delim", "quoted = False")],
     "r9h continued opener unnoticed": [(C, "rstrip(b\"\\\\\")) & 1:", "rstrip(b\"\\\\\")) & 0:")],
     "r10j eq operator refused again": [(C, 'c.type in ("command_name", *_WORDS, "variable_name", "$", "==", "=~")', 'c.type in ("command_name", *_WORDS, "variable_name", "$")')],
-    "r10j eq operator at line end allowed": [(C, 'if nx is None or re.search(rb"\\n", src[n.end_byte:nx.start_byte]):', "if False:")],
+    "r10j eq operator at line end allowed": [(C, 'if nx is None or nx.type not in _WORDS or re.search(rb"\\n", src[n.end_byte:n.parent.end_byte]):', "if False:")],
     "r10j opener body never unknown": [(C, 'b"\\n" in src[start.end_byte:hb.start_byte].rstrip(b"\\n")', "False")],
     "r10j fallback opener body never unknown": [(C, "line1.count(b\"'\") % 2 or", "False and")],
 }

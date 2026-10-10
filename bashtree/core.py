@@ -835,7 +835,7 @@ def _unparsed(root, src):
                     return "the next line was taken for part of this command"
         if t in ("==", "=~") and n.parent.type in ("command", "declaration_command", "unset_command"):
             nx = n.next_sibling       # an ordinary word outside [[ ]]; unsafe only when it swallowed the line end
-            if nx is None or re.search(rb"\n", src[n.end_byte:nx.start_byte]):
+            if nx is None or nx.type not in _WORDS or re.search(rb"\n", src[n.end_byte:n.parent.end_byte]):
                 return "a [[ operator outside [[ ]]"
         if t == "heredoc_body" and not _quoted_heredoc(n, src):
             end = next((c.end_byte for c in n.parent.children if c.type == "heredoc_end"), n.end_byte)
