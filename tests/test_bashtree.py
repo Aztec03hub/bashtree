@@ -911,6 +911,32 @@ def test_r11b_unwrap_nonliteral_operand():
     assert unwrap(["nice", "-n", "5", "sh"]).stopped is None
 
 
+def test_r12_git_exec_path():
+    g = git_args(["git", "--exec-path=.", "foo"])
+    assert (g.ok, g.runs_command) == (False, True)
+    assert git_args(["git", "--exec-path", "status"]).ok
+
+
+def test_r12_git_unquoted_expansion_value():
+    for cmd in ("git -C $d status", "git --git-dir=$d status", "git --work-tree=`x` status",
+                "git --namespace=$d status", "git --attr-source=$d status"):
+        g = git_args(parse(cmd).commands[0].words)
+        assert (g.ok, g.runs_command) == (False, True), cmd
+    assert git_args(parse('git -C "$d" status').commands[0].words).ok
+    assert git_args(parse("git -C /x status").commands[0].words).ok
+
+
+def test_r12_env_split_keeps_operand_check():
+    u = unwrap(parse("env -u $U -S 'echo hi'").commands[0].words)
+    assert u.stopped == "nonliteral-operand"
+    assert unwrap(parse("env -S 'echo hi'").commands[0].words).words == ("echo", "hi")
+
+
+def test_r12_runuser_nonliteral_user():
+    n = nested(parse("runuser -u $U -- echo hi").commands[0].words)
+    assert n[0].kind == "unknown"
+
+
 def test_r11b_launchers_listed():
     for p in ("unbuffer", "sshpass", "gosu", "su-exec", "bwrap", "faketime", "chpst", "nsenter"):
         assert nested([p, "x"])[0].kind == "unknown", p
