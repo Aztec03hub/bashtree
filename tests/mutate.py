@@ -190,7 +190,10 @@ MUTANTS = {
                      "            select.select([fd], [], [])")],
     "timed-out child left running": [(C, "        if _child.proc.poll() is None:\n            _child.stop()\n", "")],
     "child shared across fork": [(C, " or _child.owner != os.getpid()", ""),
-                                 (C, "os.register_at_fork(after_in_child=_forget_child_after_fork)", "")],
+                                 (C, "os.register_at_fork(after_in_child=_forget_child_after_fork)", ""),
+                                 # a forked process gets ECHILD from poll() on its parent's child and starts its
+                                 # own, so that check protects too and has to go for the mutant to bite
+                                 (C, " or _child.proc.poll() is not None:", ":")],
     "child memory not capped": [(C, 'if sys.platform == "linux" else ""', 'if False else ""')],
     "split redirect word not joined": [(C, "if runs and runs[-1][-1].end_byte == c.start_byte:", "if False:")],
     "brace glued to a word": [(C, 'return "a brace glued to the word next to it"', "pass")],
@@ -296,7 +299,16 @@ MUTANTS = {
     "r11a fallback never refuses spanning opener": [(C, "if any(_opener_spans(t2.root_node, s2, h[2]) for h in cut[1].values()):", "if False:")],
     "r11a spanning node must cross the newline": [(C, "c.start_byte <= nl < c.end_byte)", "c.start_byte <= nl)")],
 }
-TEST = "import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; [f() for n, f in sorted(vars(t).items()) if n.startswith('test_')]"
+def _test(only=""):
+    return ("import sys; sys.path.insert(0, 'tests'); import test_bashtree as t; "
+            f"[f() for n, f in sorted(vars(t).items()) if n.startswith('test_') and {only!r} in n]")
+
+
+TEST = _test()
+# Mutants of the parse child run only the tests with "child" in their name (the full suite takes 25 s).
+CHILD_ONLY = {"killed child is an error", "memory error is an error", "no restart after a crash", "no deadline",
+              "timed-out child left running", "child shared across fork", "child memory not capped",
+              "child not isolated"}
 
 
 def run(item):
@@ -312,11 +324,11 @@ def run(item):
                 return f"{name:32} -> STALE (mutation no longer applies)"
             f.write_text(text.replace(a, b))
         try:
-            res = subprocess.run([sys.executable, "-c", TEST], cwd=d, capture_output=True,
+            res = subprocess.run([sys.executable, "-c", _test("child") if name in CHILD_ONLY else TEST], cwd=d, capture_output=True,
                                  text=True, timeout=240)           # every parse runs in a child now: the suite takes 40 s alone
             if res.returncode < 0:      # the interpreter itself died (SIGSEGV ...): the test caught the mutation
                 return f"{name:32} -> killed (crash)"
-            if res.returncode and not any(e in res.stderr for e in ("AssertionError", "ValueError", "IndexError", "RuntimeError")):
+            if res.returncode and not any(e in res.stderr for e in ("AssertionError", "ValueError", "IndexError", "RuntimeError", "AttributeError")):
                 return f"{name:32} -> ERROR, not an assertion: {(res.stderr.strip().splitlines() or ['(no stderr)'])[-1][:80]}"
             return f"{name:32} -> {'killed' if res.returncode else 'SURVIVED'}"
         except subprocess.TimeoutExpired:

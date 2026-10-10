@@ -987,6 +987,21 @@ def test_child_has_a_memory_cap():
     assert "RLIMIT_AS" in code and str(core.CHILD_MEMORY) in code
 
 
+def test_child_is_started_isolated():
+    from unittest import mock
+    from bashtree import core
+    core._stop_child()
+    core._child = None
+    argv = []
+    real = core.subprocess.Popen
+    def spy(args, **kw):
+        argv.append(list(args))
+        return real(args, **kw)
+    with mock.patch.object(core.subprocess, "Popen", spy):
+        assert parse(_big_script()).status == OK
+    assert argv[0][1] == "-I", argv[0][:3]
+
+
 def _big_script(n=9000):
     return ("".join("echo line%d | grep x > /dev/null\n" % i for i in range(n // 20)))[:n]
 
