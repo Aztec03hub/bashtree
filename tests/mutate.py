@@ -35,6 +35,7 @@ MUTANTS = {
     "git unquoted expansion value ok": [(H, "            if a not in (\"-c\", \"--config-env\") and _unquoted_expansion(raws[i + 1]):", "            if False:")],
     "env -S disables operand check": [(H, "        if not all(used):", "        if not all(used) and not (name == \"env\" and names & {\"-S\", \"--split-string\"}):")],
     "runuser nonliteral user": [(H, "        if not ok or any(_NONLIT.search(a) for a in args):", "        if not ok:")],
+    "backslash does not escape in scan": [(H, '        if c == "\\\\":\n            i += 2', '        if False:\n            i += 2')],
     "nested trusts any path": [(H, "    if prog in _NESTERS and not _trusted(words[0]):", "    if False:")],
     # structure
     "newline not an op": [(C, 'ops.append("\\n" if b"\\n" in src[lo:hi] else None)', "ops.append(None)")],

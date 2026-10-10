@@ -392,12 +392,30 @@ def _git_cmd_key(key, value):
 _GIT_TRANSPORT = re.compile(r"(?:^|=)[A-Za-z0-9+.-]+::")    # `ext::sh -c x`, `<helper>::addr`
 
 
-_QUOTED = re.compile(r"\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'")
-
-
 def _unquoted_expansion(raw):
-    """True if `$` or a backtick sits outside quotes: word splitting could add options."""
-    return bool(re.search(r"[$`]", _QUOTED.sub("", raw)))
+    """True if `$` or a backtick sits outside quotes: word splitting could add options.
+
+    Scans left to right like the shell: `\\x` is one quoted character, `'..'` and `$'..'`
+    and `".."` are skipped, anything else with `$` or a backtick counts. An unterminated
+    quote counts too."""
+    i, n = 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "\\":
+            i += 2
+        elif c in "'\"" or (c == "$" and raw[i + 1:i + 2] == "'"):
+            q = "'" if c == "$" else c
+            i += 2 if c == "$" else 1
+            while i < n and raw[i] != q:
+                i += 2 if raw[i] == "\\" and (q == '"' or c == "$") else 1
+            if i >= n:
+                return True
+            i += 1
+        elif c in "$`":
+            return True
+        else:
+            i += 1
+    return False
 
 
 def git_args(words):

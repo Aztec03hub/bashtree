@@ -995,6 +995,18 @@ def test_child_has_a_memory_cap():
     assert "RLIMIT_AS" in seen[0] and str(core.CHILD_MEMORY) in seen[0]
 
 
+def test_r13_escaped_quote_does_not_hide_expansion():
+    for w in ("\\'$x\\'", "--git-dir=\\'$x\\'"):
+        args = ["git", "-C", w, "status"] if w[0] == "\\" else ["git", w, "status"]
+        r = parse(" ".join(args))
+        g = git_args(r.commands[0].words)
+        assert not g.ok, w
+    ok = parse("git -C '$x' status")
+    assert git_args(ok.commands[0].words).ok
+    ok = parse("git -C $'a\\'b' status")
+    assert git_args(ok.commands[0].words).ok
+
+
 if __name__ == "__main__":
     failed = 0
     for name, fn in sorted(globals().items()):
