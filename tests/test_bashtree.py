@@ -520,11 +520,10 @@ def test_round5_helpers():
 
 
 def test_child_killed_or_out_of_memory():
-    import subprocess as sp
     from unittest import mock
     big = "echo " + "a " * 5000
     def fake(code, err=b""):
-        return mock.patch("bashtree.core.subprocess.run", return_value=sp.CompletedProcess([], code, b"", err))
+        return mock.patch("bashtree.core._Child.ask", return_value=("dead", (code, err)))
     with fake(-9):
         r = parse(big)
     assert r.status == TOO_BIG and "signal 9" in r.reason
@@ -983,16 +982,77 @@ def test_r12_spanning_opener_body_is_none():
 
 
 def test_child_has_a_memory_cap():
-    from unittest import mock
-    import subprocess as sp
     from bashtree import core
-    seen = []
-    def fake(args, **kw):
-        seen.append(args[3])
-        return sp.CompletedProcess(args, 0, core.pickle.dumps(core.Result(OK, ())), b"")
-    with mock.patch("bashtree.core.subprocess.run", side_effect=fake):
-        core._parse_in_child(b"echo hi")
-    assert "RLIMIT_AS" in seen[0] and str(core.CHILD_MEMORY) in seen[0]
+    code = core._child_code()
+    assert "RLIMIT_AS" in code and str(core.CHILD_MEMORY) in code
+
+
+def _big_script(n=9000):
+    return ("".join("echo line%d | grep x > /dev/null\n" % i for i in range(n // 20)))[:n]
+
+
+def test_child_is_reused():
+    from bashtree import core
+    pids = set()
+    for _ in range(20):
+        assert parse(_big_script()).status == OK
+        pids.add(core._child.proc.pid)
+    assert len(pids) == 1
+
+
+def test_killed_child_is_replaced():
+    import signal
+    from bashtree import core
+    assert parse(_big_script()).status == OK
+    old = core._child.proc
+    old.send_signal(signal.SIGKILL)
+    old.wait()
+    r = parse(_big_script())                       # a dead child found before the request: restarted quietly
+    assert r.status == OK and core._child.proc.pid != old.pid
+    core._child.proc.send_signal(signal.SIGKILL)
+    core._child.proc.wait()
+    # killed while the request is in flight: that input is TOO_BIG, the next one is fine
+    from unittest import mock
+    real = core._Child.ask
+    def die_first(self, src):
+        self.proc.kill()
+        self.proc.wait()
+        return real(self, src)
+    with mock.patch.object(core._Child, "ask", die_first):
+        r = parse(_big_script())
+    assert r.status == TOO_BIG and "signal 9" in r.reason, r
+    assert parse(_big_script()).status == OK
+
+
+def test_timeout_kills_the_child_and_the_next_parse_works():
+    from unittest import mock
+    from bashtree import core
+    assert parse(_big_script()).status == OK
+    old = core._child.proc
+    with mock.patch.object(core, "DEADLINE", 0.001):
+        r = parse(_big_script())
+    assert r.status == TOO_BIG and "took over" in r.reason, r
+    assert old.poll() is not None                   # the stuck child is dead, not left running
+    assert parse(_big_script()).status == OK
+
+
+def test_forked_process_has_its_own_child():
+    import os
+    from bashtree import core
+    assert parse(_big_script()).status == OK
+    mine = core._child.proc.pid
+    r, w = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            ok = parse(_big_script()).status == OK
+            os.write(w, b"%d %d" % (core._child.proc.pid, ok))
+        finally:
+            os._exit(0)
+    os.waitpid(pid, 0)
+    theirs, ok = map(int, os.read(r, 100).split())
+    assert ok == 1 and theirs != mine
+    assert parse(_big_script()).status == OK and core._child.proc.pid == mine
 
 
 def test_r13_escaped_quote_does_not_hide_expansion():
