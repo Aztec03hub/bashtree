@@ -186,7 +186,7 @@ MUTANTS = {
     "su bad option guessed": [(H, '        if not ok or any(_NONLIT.search(a) for a in args):', '        if False:')],
     "screen bad option guessed": [(H, 'if not ok or flags & {"-X", "-c"}:', 'if flags & {"-X", "-c"}:')],
     "killed child is an error": [(C, "    if code < 0:", "    if False:")],
-    "memory error is an error": [(C, '    if code == 1 and b"MemoryError" in err[-2000:]:', "    if False:")],
+    "memory error is an error": [(C, '    if code == 1 and b"MemoryError" in err:', "    if False:")],
     "no restart after a crash": [(C, "        _child = None\n    if kind == \"timeout\":", "    if kind == \"timeout\":"),
                                  (C, " or _child.proc.poll() is not None:", ":")],
     "no deadline": [(C, "            if not self._wait(fd, select.POLLIN, end):\n                return None",
