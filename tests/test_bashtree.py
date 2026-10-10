@@ -276,7 +276,8 @@ def test_status():
     assert parse("a=(" * 1001).status == TOO_BIG
     assert parse("").status == OK and parse("").commands == ()
     assert len(cmds(" && ".join(["a"] * 250))) == 250              # deep, but within MAX_DEPTH
-    assert parse(" && ".join(["a"] * 5000)).status == TOO_BIG      # no recursion error either
+    r = parse(" && ".join(["a"] * 5000))                           # no recursion error either
+    assert r.status == TOO_BIG and "nested over" in r.reason, r
     assert parse("a;" * 10001).status == TOO_BIG                      # MAX_COMMANDS
     assert parse("{ " + "a;" * 6000 + " }\n" + "{ " + "a;" * 6000 + " }").status == TOO_BIG  # spread out
     assert len(cmds("env " * 16000 + "x")[0].words) == 16001 and parse("x " + "$a" * 12000).status == OK
