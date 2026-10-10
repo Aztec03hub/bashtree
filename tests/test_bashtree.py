@@ -741,13 +741,13 @@ def test_guards_after_the_r8_merge():
 def test_r9i_git_args_nested_wrappers_source():
     g = git_args(["git", "-C", "/abs", "push"])
     assert (g.options, g.subcommand, g.rest, g.ok, g.unknown) == ((("-C", "/abs"),), "push", (), True, None)
-    assert git_args(["git", "-c", "k=v", "push", "--force"]).options == (("-c", "k=v"),)
-    assert git_args(["git", "-c", "k=v", "push", "--force"]).rest == ("--force",)
+    assert git_args(["git", "-c", "user.name=v", "push", "--force"]).options == (("-c", "user.name=v"),)
+    assert git_args(["git", "-c", "user.name=v", "push", "--force"]).rest == ("--force",)
     g = git_args(["git", "-ccore.x=1", "push"])                 # git itself rejects the glued form
     assert (g.ok, g.unknown, g.subcommand) == (False, "-ccore.x=1", None)
     assert git_args(["git", "--git-dir=/x", "push"]).options == (("--git-dir", "/x"),)
     assert git_args(["git", "--git-dir", "/x", "push"]).subcommand == "push"
-    assert git_args(["git", "--config-env=k=v", "push"]).options == (("--config-env", "k=v"),)
+    assert git_args(["git", "--config-env=user.name=V", "push"]).options == (("--config-env", "user.name=V"),)
     g = git_args(["git", "--no-pager", "-C", "x", "commit", "-m", "m"])
     assert g.options == (("--no-pager", None), ("-C", "x")) and g.subcommand == "commit" and g.rest == ("-m", "m")
     assert git_args(["git", "--exec-path", "push"]).subcommand == "push"      # attached value only
@@ -815,7 +815,7 @@ def test_r10k_git_args_commands_and_nonliteral():
     g = git_args(["git", "--config-env=alias.p=VAR", "p"])
     assert (g.ok, g.runs_command) == (False, True)
     g = git_args(["git", "-c", "user.name=x", "-c", "alias.p=push", "p"])
-    assert (g.ok, g.runs_command, g.subcommand) == (True, False, "p")
+    assert (g.ok, g.runs_command, g.subcommand) == (False, True, None)   # r11b: any alias.* is unsafe
     ws = parse('git -c core.pager=x status').commands[0].words
     assert git_args(ws).runs_command and git_args(parse("git -C d push").commands[0].words).subcommand == "push"
     for bad in ('git $x push', 'git "$x" push', 'git pu* x', 'git p{a,b}', 'git `x` push'):
@@ -860,6 +860,41 @@ def test_r10j_heredoc_body_unknown_on_multiline_opener():
         assert cmds(s)[0].redirects[0].body is None, s
     assert cmds("cat <<E\nE\n")[0].redirects[0].body == ""
     assert cmds("cat <<E\nx\nE\n")[0].redirects[0].body == "x\n"
+
+
+def test_r11b_git_inverted_allowlist_and_alias():
+    for k in ("trailer.x.command=touch hit", "remote.o.uploadpack=touch hit", "remote.o.receivepack=touch hit",
+              "gpg.ssh.defaultKeyCommand=touch hit", "core.alternateRefsCommand=touch hit",
+              "difftool.kdiff3.path=./tool.sh", "mergetool.m.path=x", "man.m.path=x",
+              "protocol.ext.allow=always", "remote.e.url=ext::sh -c touch% hit", "totally.unknown=1",
+              "alias.p=push", "http.sslVerify=false"):
+        g = git_args(["git", "-c", k, "fetch", "o"])
+        assert (g.ok, g.runs_command, g.unknown) == (False, True, k), k
+    for k in ("user.name=x", "color.ui=always", "core.quotepath=false", "advice.detachedHead=false", "pull.rebase=true"):
+        assert git_args(["git", "-c", k, "status"]).ok, k
+    g = git_args(["git", "-c", "alias.p=push", "p", "origin", "main"])
+    assert (g.ok, g.runs_command, g.subcommand) == (False, True, None)
+    for rest in (["fetch", "ext::sh -c touch% hit"], ["ls-remote", "ext::x"], ["clone", "fd::17/x"],
+                 ["fetch", "--upload-pack=ext::x", "o"]):
+        g = git_args(["git"] + rest)
+        assert (g.ok, g.runs_command) == (False, True), rest
+    assert git_args(["git", "commit", "-m", "fix a:b"]).ok
+
+
+def test_r11b_unwrap_nonliteral_operand():
+    for cmd in ("timeout $T sh -c 'touch hit'", "nice -n $N sh -c 'touch hit'", "env -u $U sh -c 'touch hit'",
+                "timeout -s $S sh -c 'touch hit'", "sudo -u $U sh -c 'touch hit'", 'timeout "$T" sh -c x'):
+        u = unwrap(parse(cmd).commands[0].words)
+        assert u.stopped == "nonliteral-operand" and u.words[0] in ("timeout", "nice", "env", "sudo"), cmd
+        assert nested(parse(cmd).commands[0].words)[0].kind == "unknown", cmd
+    u = unwrap(parse("timeout 5 sh -c x").commands[0].words)
+    assert (u.stopped, u.words) == (None, ("sh", "-c", "x"))
+    assert unwrap(["nice", "-n", "5", "sh"]).stopped is None
+
+
+def test_r11b_launchers_listed():
+    for p in ("unbuffer", "sshpass", "gosu", "su-exec", "bwrap", "faketime", "chpst", "nsenter"):
+        assert nested([p, "x"])[0].kind == "unknown", p
 
 
 if __name__ == "__main__":
