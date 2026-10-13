@@ -359,12 +359,14 @@ if __name__ == "__main__":
     same = [n for n, e in MUTANTS.items() if sum(repr(e) == repr(f) for f in MUTANTS.values()) > 1]
     assert not same, f"mutants repeating another's edits: {same}"
     # Control: the unmodified copy must pass, or "killed" means nothing.
-    control = run(("control (no mutation)", []))
+    # It runs beside the mutants (saves its 20 s); if it fails, every "killed" below is void and we say so.
+    with ThreadPoolExecutor(24) as ex:
+        control_f = ex.submit(run, ("control (no mutation)", []))
+        results = list(ex.map(run, MUTANTS.items()))
+        control = control_f.result()
     print(control.replace("SURVIVED", "passes, as it must"))
     if "SURVIVED" not in control:
-        sys.exit("the tests fail without any mutation; fix that first")
-    with ThreadPoolExecutor(24) as ex:
-        results = list(ex.map(run, MUTANTS.items()))
+        sys.exit("the tests fail without any mutation; every result above is void; fix that first")
     print("\n".join(results))
     sys.exit(0 if all(" killed" in r for r in results) else 1)
 
